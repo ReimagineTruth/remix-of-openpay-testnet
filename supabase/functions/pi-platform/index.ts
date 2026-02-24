@@ -143,6 +143,7 @@ const safeUpsertA2UPayout = async (
 const buildAndSubmitA2U = async (
   payment: PaymentInfo,
   walletPrivateSeed: string,
+  networkOverride?: string,
 ) => {
   const keypair = StellarSdk.Keypair.fromSecret(walletPrivateSeed);
 
@@ -154,7 +155,8 @@ const buildAndSubmitA2U = async (
     );
   }
 
-  const horizonUrl = HORIZON_URLS[payment.network] || HORIZON_URLS["Pi Testnet"];
+  const effectiveNetwork = networkOverride || payment.network;
+  const horizonUrl = HORIZON_URLS[effectiveNetwork] || HORIZON_URLS["Pi Testnet"];
   const horizon = new StellarSdk.Horizon.Server(horizonUrl);
 
   const myAccount = await horizon.loadAccount(keypair.publicKey());
@@ -162,7 +164,7 @@ const buildAndSubmitA2U = async (
 
   const tx = new StellarSdk.TransactionBuilder(myAccount, {
     fee: baseFee.toString(),
-    networkPassphrase: payment.network,
+    networkPassphrase: effectiveNetwork,
     timebounds: await horizon.fetchTimebounds(180),
   })
     .addOperation(
@@ -330,16 +332,22 @@ serve(async (req) => {
 
       const walletSeed = Deno.env.get("PI_WALLET_PRIVATE_SEED");
       if (!walletSeed) return jsonResponse({ error: "PI_WALLET_PRIVATE_SEED not configured" }, 500);
+      const configuredNetwork = (Deno.env.get("PI_NETWORK") || "Pi Testnet").trim();
 
       // Fetch the payment to get addresses and network
       const paymentData = await getPaymentWithRetry(paymentId, apiKey);
 
-      const supportedNetworks = ["Pi Network", "Pi Testnet"];
-      if (!supportedNetworks.includes(paymentData.network)) {
-        return jsonResponse({ error: `A2U payouts are not supported on network: ${paymentData.network}` }, 400);
+      if (paymentData.network !== configuredNetwork) {
+        return jsonResponse(
+          { error: `Pi payment network mismatch. Expected ${configuredNetwork}, got ${paymentData.network}` },
+          400,
+        );
+      }
+      if (configuredNetwork !== "Pi Testnet") {
+        return jsonResponse({ error: "A2U payouts are supported only on Pi Testnet" }, 400);
       }
 
-      const submitTxid = await buildAndSubmitA2U(paymentData, walletSeed);
+      const submitTxid = await buildAndSubmitA2U(paymentData, walletSeed, configuredNetwork);
 
       await safeUpsertA2UPayout(supabase, {
         payment_id: paymentId,
