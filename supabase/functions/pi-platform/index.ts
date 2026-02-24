@@ -14,11 +14,11 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
   });
 
 const parseJson = (raw: string) => {
-  if (!raw) return {};
+  if (!raw) return null;
   try {
-    return JSON.parse(raw) as unknown;
+    return JSON.parse(raw);
   } catch {
-    return { raw };
+    return null;
   }
 };
 
@@ -178,9 +178,9 @@ const buildAndSubmitA2U = async (
   tx.sign(keypair);
   const result = await horizon.submitTransaction(tx);
 
-  // The Horizon response has `id` as the txid
-  const txid = (result as unknown as { id?: string }).id;
-  if (!txid) throw new Error("Horizon did not return a transaction id");
+  // The Horizon response has `hash` or `id` as the txid
+  const txid = (result as any).hash || (result as any).id;
+  if (!txid) throw new Error("Horizon did not return a transaction id (hash/id)");
   return txid;
 };
 
@@ -211,14 +211,14 @@ serve(async (req) => {
       });
 
       const data = parseJson(await piResponse.text());
-      if (!piResponse.ok) {
+      if (!piResponse.ok || !data) {
         console.error("Pi auth_verify failed", piResponse.status, data);
         return jsonResponse({ error: "Pi auth verification failed", status: piResponse.status, data }, 400);
       }
 
-      const uid = typeof data.uid === "string" ? data.uid : null;
-      const username = typeof data.username === "string" ? data.username : null;
-      const walletAddress = typeof data.wallet_address === "string" ? data.wallet_address : null;
+      const uid = typeof (data as any).uid === "string" ? (data as any).uid : null;
+      const username = typeof (data as any).username === "string" ? (data as any).username : null;
+      const walletAddress = typeof (data as any).wallet_address === "string" ? (data as any).wallet_address : null;
       if (!uid) return jsonResponse({ error: "Pi auth response missing uid" }, 400);
 
       return jsonResponse({ success: true, data: { uid, username, wallet_address: walletAddress } });
@@ -238,7 +238,7 @@ serve(async (req) => {
     if (action === "ad_verify") {
       if (!adId || typeof adId !== "string") return jsonResponse({ error: "Missing adId" }, 400);
       const data = await callPiApi(`/ads_network/status/${adId}`, "GET", apiKey);
-      const rewarded = (data.mediator_ack_status as string) === "granted";
+      const rewarded = (data as any)?.mediator_ack_status === "granted";
       return jsonResponse({ success: true, rewarded, data });
     }
 
@@ -334,8 +334,9 @@ serve(async (req) => {
       // Fetch the payment to get addresses and network
       const paymentData = await getPaymentWithRetry(paymentId, apiKey);
 
-      if (paymentData.network !== "Pi Testnet") {
-        return jsonResponse({ error: "A2U payouts are supported only on Pi Testnet" }, 400);
+      const supportedNetworks = ["Pi Network", "Pi Testnet"];
+      if (!supportedNetworks.includes(paymentData.network)) {
+        return jsonResponse({ error: `A2U payouts are not supported on network: ${paymentData.network}` }, 400);
       }
 
       const submitTxid = await buildAndSubmitA2U(paymentData, walletSeed);
