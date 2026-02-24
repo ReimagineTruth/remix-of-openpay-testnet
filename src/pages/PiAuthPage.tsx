@@ -145,7 +145,7 @@ const PiAuthPage = () => {
     setBusyAuth(true);
     try {
       const referralCode = (searchParams.get("ref") || "").trim().toLowerCase();
-      const auth = await window.Pi.authenticate(["username"]);
+      const auth = await window.Pi.authenticate(["username", "payments"]);
       const verified = await verifyPiAccessToken(auth.accessToken);
       const username = verified.username || auth.user.username;
 
@@ -172,18 +172,26 @@ const PiAuthPage = () => {
           .from("profiles")
           .select("full_name, username")
           .eq("id", user.id)
-          .single();
+          .maybeSingle();
 
-        const needsProfileSetup =
+        const piDisplayName = username.trim();
+        const piHandle = piDisplayName.replace(/^@+/, "").toLowerCase();
+        const needsProfileUpdate =
           Boolean(signInResult?.created) ||
           !profile?.full_name?.trim() ||
           !profile?.username?.trim() ||
-          profile.username.startsWith("pi_");
+          profile?.username?.startsWith("pi_");
 
-        if (needsProfileSetup) {
-          toast.message("Set up your profile to continue");
-          navigate("/setup-profile", { replace: true });
-          return;
+        if (needsProfileUpdate) {
+          await supabase
+            .from("profiles")
+            .upsert({
+              id: user.id,
+              full_name: profile?.full_name?.trim() ? profile.full_name : piDisplayName,
+              username: profile?.username?.trim() && !profile.username.startsWith("pi_")
+                ? profile.username
+                : piHandle,
+            });
         }
 
         if (expectedCode) {
