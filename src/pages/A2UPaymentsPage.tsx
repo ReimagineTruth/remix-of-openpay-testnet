@@ -135,6 +135,14 @@ const A2UPaymentsPage = () => {
       return;
     }
 
+    if (!piSdkReady) {
+      toast.error("Pi SDK not available. Open this in Pi Browser.");
+      return;
+    }
+
+    // Always refresh Pi auth before A2U, like Top Up.
+    await refreshPiAuth();
+
     if (!receiverUid.trim()) {
       toast.error("Missing Pi UID. Authenticate with Pi first.");
       return;
