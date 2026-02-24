@@ -9,12 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import BottomNav from "@/components/BottomNav";
 
-type PiPlatformPayload = {
-  success?: boolean;
-  error?: string;
-  data?: unknown;
-};
-
 type PiPaymentData = {
   identifier?: string;
   amount?: number;
@@ -40,19 +34,26 @@ const A2UPaymentsPage = () => {
   const [piSdkReady, setPiSdkReady] = useState(false);
   const [authRefreshing, setAuthRefreshing] = useState(false);
 
-  const callPiPlatform = async (body: Record<string, unknown>, fallbackError: string) => {
-    const { data, error } = await supabase.functions.invoke("pi-platform", { body });
-    if (error) throw new Error(await getFunctionErrorMessage(error, fallbackError));
-    return (data || {}) as PiPlatformPayload;
+  const a2uEndpoint = (import.meta as any).env?.VITE_A2U_ENDPOINT || "/api/a2u-withdraw";
+  const callA2U = async (payload: Record<string, unknown>, fallbackError: string) => {
+    const res = await fetch(a2uEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || fallbackError);
+    }
+    return data as Record<string, unknown>;
   };
 
   useEffect(() => {
     setPiSdkReady(typeof window !== "undefined" && !!window.Pi);
     const boot = async () => {
       try {
-        const [{ data: userResult }, configPayload] = await Promise.all([
+        const [{ data: userResult }] = await Promise.all([
           supabase.auth.getUser(),
-          callPiPlatform({ action: "a2u_config_status" }, "Failed to load A2U config status"),
         ]);
 
         const piUid = String(userResult.user?.user_metadata?.pi_uid || "").trim();
@@ -66,18 +67,7 @@ const A2UPaymentsPage = () => {
         if (resolvedUid) setReceiverUid(resolvedUid);
         if (resolvedUsername) setReceiverUsername(resolvedUsername);
 
-        const status = (configPayload.data || {}) as {
-          hasApiKey?: boolean;
-          hasValidationKey?: boolean;
-          hasWalletPrivateSeed?: boolean;
-          hasWalletPublicAddress?: boolean;
-        };
-        setConfigReady(
-          Boolean(status.hasApiKey) &&
-          Boolean(status.hasValidationKey) &&
-          Boolean(status.hasWalletPrivateSeed) &&
-          Boolean(status.hasWalletPublicAddress),
-        );
+        setConfigReady(true);
       } catch {
         setConfigReady(false);
       }
@@ -160,55 +150,18 @@ const A2UPaymentsPage = () => {
     try {
       const payoutMemo = memo.trim() || "OpenPay Testnet payout";
 
-      // Step 1: Create A2U payment
-      const createPayload = await callPiPlatform(
+      const payoutPayload = await callA2U(
         {
-          action: "a2u_create",
-          payment: {
-            uid: receiverUid.trim(),
-            amount: fixedPayoutAmount,
-            memo: payoutMemo,
-            metadata: {
-              feature: "a2u_request_payout",
-              source: "openpay",
-              requested_at: new Date().toISOString(),
-            },
-          },
+          uid: receiverUid.trim(),
+          amount: fixedPayoutAmount,
+          memo: payoutMemo,
         },
         "Failed to create payout",
       );
 
-      const createdPayment = (createPayload.data || {}) as PiPaymentData;
-      const createdPaymentId = String(createdPayment.identifier || "").trim();
-      if (!createdPaymentId) {
-        throw new Error("Pi API did not return a payment identifier");
-      }
-
-      // Step 2: Approve the payment
-      await callPiPlatform(
-        { action: "a2u_approve", paymentId: createdPaymentId },
-        "Failed to approve payout",
-      );
-
-      // Step 3: Submit to Pi Blockchain (builds & signs Stellar tx)
-      const submitPayload = await callPiPlatform(
-        { action: "a2u_submit", paymentId: createdPaymentId },
-        "Failed to submit payout to blockchain",
-      );
-      const submittedTxid = String((submitPayload as any).txid || "").trim();
-
-      // Step 4: Complete the payment
-      await callPiPlatform(
-        { action: "a2u_complete", paymentId: createdPaymentId, txid: submittedTxid || undefined },
-        "Failed to complete payout",
-      );
-
-      // Step 5: Fetch final status
-      const finalPayload = await callPiPlatform(
-        { action: "a2u_get", paymentId: createdPaymentId },
-        "Failed to load final payout status",
-      );
-      const finalPayment = (finalPayload.data || {}) as PiPaymentData;
+      const createdPaymentId = String(payoutPayload.paymentId || "").trim();
+      const submittedTxid = String(payoutPayload.txid || "").trim();
+      const finalPayment = (payoutPayload.payment || {}) as PiPaymentData;
       const finalTxid = String(finalPayment.transaction?.txid || submittedTxid || "").trim();
       const finalLink = String(finalPayment.transaction?._link || "").trim();
 
