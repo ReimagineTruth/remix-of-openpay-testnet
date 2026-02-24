@@ -168,31 +168,8 @@ const PiAuthPage = () => {
           toast.error(error.message || "Pi linked locally, but profile update failed");
         }
 
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("full_name, username")
-          .eq("id", user.id)
-          .maybeSingle();
-
-        const piDisplayName = username.trim();
-        const piHandle = piDisplayName.replace(/^@+/, "").toLowerCase();
-        const needsProfileUpdate =
-          Boolean(signInResult?.created) ||
-          !profile?.full_name?.trim() ||
-          !profile?.username?.trim() ||
-          profile?.username?.startsWith("pi_");
-
-        if (needsProfileUpdate) {
-          await supabase
-            .from("profiles")
-            .upsert({
-              id: user.id,
-              full_name: profile?.full_name?.trim() ? profile.full_name : piDisplayName,
-              username: profile?.username?.trim() && !profile.username.startsWith("pi_")
-                ? profile.username
-                : piHandle,
-            });
-        }
+        // Profile rows are created by the auth trigger. Avoid client-side upserts here
+        // to prevent username conflicts and RLS errors during Pi auth.
 
         if (expectedCode) {
           const { data: isMatch, error: verifyError } = await (supabase as any).rpc(

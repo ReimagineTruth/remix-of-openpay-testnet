@@ -127,6 +127,14 @@ const A2UPaymentsPage = () => {
   };
 
   const handleRequestPayout = async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error("Please sign in before requesting a payout.");
+      return;
+    }
+
     if (!receiverUid.trim()) {
       toast.error("Missing Pi UID. Authenticate with Pi first.");
       return;
