@@ -123,6 +123,23 @@ const getPaymentWithRetry = async (paymentId: string, apiKey: string, attempts =
   throw new Error("Payment not found after retries");
 };
 
+const safeUpsertA2UPayout = async (
+  supabase: ReturnType<typeof createClient>,
+  record: Record<string, unknown>,
+) => {
+  try {
+    const payload = { ...record, updated_at: new Date().toISOString() };
+    const { error } = await supabase
+      .from("pi_a2u_payouts")
+      .upsert(payload, { onConflict: "payment_id" });
+    if (error) {
+      console.warn("pi_a2u_payouts upsert error:", error.message);
+    }
+  } catch (err) {
+    console.warn("pi_a2u_payouts upsert failed:", err instanceof Error ? err.message : String(err));
+  }
+};
+
 const buildAndSubmitA2U = async (
   payment: PaymentInfo,
   walletPrivateSeed: string,
@@ -290,6 +307,18 @@ serve(async (req) => {
         createdData ||
         {};
 
+      const createdPaymentId = resolvePaymentId(normalizedPayment as Record<string, unknown>);
+      if (createdPaymentId) {
+        await safeUpsertA2UPayout(supabase, {
+          payment_id: createdPaymentId,
+          pi_uid: uid,
+          amount,
+          memo,
+          status: "created",
+          created_by: user.id,
+        });
+      }
+
       return jsonResponse({ success: true, data: normalizedPayment });
     }
 
@@ -310,6 +339,15 @@ serve(async (req) => {
       }
 
       const submitTxid = await buildAndSubmitA2U(paymentData, walletSeed);
+
+      await safeUpsertA2UPayout(supabase, {
+        payment_id: paymentId,
+        amount: paymentData.amount,
+        memo: paymentData.identifier,
+        status: "submitted",
+        txid: submitTxid,
+        updated_by: user.id,
+      });
 
       return jsonResponse({ success: true, txid: submitTxid, paymentId });
     }
@@ -345,6 +383,22 @@ serve(async (req) => {
     }
 
     const data = await callPiApi(endpoint, method, apiKey, body);
+
+    if (action === "a2u_approve") {
+      await safeUpsertA2UPayout(supabase, {
+        payment_id: paymentId,
+        status: "approved",
+        updated_by: user.id,
+      });
+    }
+    if (action === "a2u_complete") {
+      await safeUpsertA2UPayout(supabase, {
+        payment_id: paymentId,
+        status: "completed",
+        txid: txid && typeof txid === "string" ? txid : null,
+        updated_by: user.id,
+      });
+    }
     return jsonResponse({ success: true, data });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unexpected error";

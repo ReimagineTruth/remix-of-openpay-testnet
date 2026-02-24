@@ -4,7 +4,7 @@ import { ArrowLeft, HandCoins } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getFunctionErrorMessage } from "@/lib/supabaseFunctionError";
-import { getAppCookie } from "@/lib/userPreferences";
+import { getAppCookie, setAppCookie } from "@/lib/userPreferences";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import BottomNav from "@/components/BottomNav";
@@ -37,6 +37,8 @@ const A2UPaymentsPage = () => {
   const [txid, setTxid] = useState("");
   const [explorerLink, setExplorerLink] = useState("");
   const [configReady, setConfigReady] = useState(false);
+  const [piSdkReady, setPiSdkReady] = useState(false);
+  const [authRefreshing, setAuthRefreshing] = useState(false);
 
   const callPiPlatform = async (body: Record<string, unknown>, fallbackError: string) => {
     const { data, error } = await supabase.functions.invoke("pi-platform", { body });
@@ -45,6 +47,7 @@ const A2UPaymentsPage = () => {
   };
 
   useEffect(() => {
+    setPiSdkReady(typeof window !== "undefined" && !!window.Pi);
     const boot = async () => {
       try {
         const [{ data: userResult }, configPayload] = await Promise.all([
@@ -81,6 +84,47 @@ const A2UPaymentsPage = () => {
     };
     void boot();
   }, []);
+
+  const verifyPiAccessToken = async (accessToken: string) => {
+    const { data, error } = await supabase.functions.invoke("pi-platform", {
+      body: { action: "auth_verify", accessToken },
+    });
+    if (error) throw new Error(await getFunctionErrorMessage(error, "Pi auth verification failed"));
+    const payload = data as { success?: boolean; data?: { uid?: string; username?: string }; error?: string } | null;
+    if (!payload?.success || !payload.data?.uid) throw new Error(payload?.error || "Pi auth verification failed");
+    return { uid: String(payload.data.uid), username: String(payload.data.username || "") };
+  };
+
+  const refreshPiAuth = async () => {
+    if (!window.Pi) {
+      toast.error("Pi SDK not available. Open in Pi Browser.");
+      return;
+    }
+    setAuthRefreshing(true);
+    try {
+      window.Pi.init({ version: "2.0", sandbox: String(import.meta.env.VITE_PI_SANDBOX || "false").toLowerCase() === "true" });
+      const auth = await window.Pi.authenticate(["username", "payments"]);
+      const verified = await verifyPiAccessToken(auth.accessToken);
+      const username = verified.username || auth.user.username;
+      await supabase.auth.updateUser({
+        data: {
+          pi_uid: verified.uid,
+          pi_username: username,
+          pi_connected_at: new Date().toISOString(),
+        },
+      });
+      setAppCookie("openpay_pi_uid", verified.uid);
+      setAppCookie("openpay_pi_username", username);
+      setAppCookie("openpay_pi_connected_at", new Date().toISOString());
+      setReceiverUid(verified.uid);
+      setReceiverUsername(username);
+      toast.success(`Linked as @${username}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Pi auth failed");
+    } finally {
+      setAuthRefreshing(false);
+    }
+  };
 
   const handleRequestPayout = async () => {
     if (!receiverUid.trim()) {
@@ -207,8 +251,8 @@ const A2UPaymentsPage = () => {
       <BottomNav active="menu" />
 
       <Dialog open={showPayoutModal} onOpenChange={setShowPayoutModal}>
-        <DialogContent className="rounded-[32px] border-0 bg-[#f5f5f7] p-6 sm:max-w-[520px]">
-          <DialogTitle className="text-5xl font-bold text-paypal-dark">Testnet Payouts</DialogTitle>
+        <DialogContent className="max-h-[85vh] overflow-y-auto rounded-[32px] border-0 bg-[#f5f5f7] p-6 sm:max-w-[520px]">
+          <DialogTitle className="text-3xl font-bold text-paypal-dark sm:text-5xl">Testnet Payouts</DialogTitle>
           <DialogDescription className="pt-1 text-base text-slate-500">
             Click the button below to receive a 0.01 Pi app-to-user payout to your testnet Pi wallet. You must be
             authenticated in Pi Browser to continue.
@@ -226,7 +270,7 @@ const A2UPaymentsPage = () => {
 
           <Button
             type="button"
-            className="h-14 w-full rounded-2xl bg-paypal-blue text-3xl font-bold text-white hover:bg-[#004dc5]"
+            className="h-12 w-full rounded-2xl bg-paypal-blue text-xl font-bold text-white hover:bg-[#004dc5] sm:h-14 sm:text-3xl"
             disabled={loading || !configReady || !receiverUid}
             onClick={handleRequestPayout}
           >
@@ -238,12 +282,13 @@ const A2UPaymentsPage = () => {
               type="button"
               variant="outline"
               className="h-12 w-full rounded-2xl border-paypal-blue/25 bg-white text-base font-semibold text-paypal-blue hover:bg-slate-100"
-              onClick={() => {
+              onClick={piSdkReady ? refreshPiAuth : () => {
                 setShowPayoutModal(false);
                 navigate("/auth");
               }}
+              disabled={authRefreshing}
             >
-              Authenticate with Pi
+              {authRefreshing ? "Linking Pi..." : "Authenticate with Pi"}
             </Button>
           )}
 
@@ -267,6 +312,12 @@ const A2UPaymentsPage = () => {
           {!configReady && (
             <p className="text-sm text-destructive">
               A2U server config missing. Set Pi secrets in Supabase function environment and redeploy `pi-platform`.
+            </p>
+          )}
+
+          {!piSdkReady && (
+            <p className="text-sm text-slate-500">
+              Pi SDK not detected. Open this page in Pi Browser to authenticate.
             </p>
           )}
 
