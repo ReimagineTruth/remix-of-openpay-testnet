@@ -89,6 +89,8 @@ const A2UPaymentsPage = () => {
 
     try {
       const payoutMemo = memo.trim() || "OpenPay Testnet payout";
+
+      // Step 1: Create A2U payment
       const createPayload = await callPiPlatform(
         {
           action: "a2u_create",
@@ -112,35 +114,38 @@ const A2UPaymentsPage = () => {
         throw new Error("Pi API did not return a payment identifier");
       }
 
+      // Step 2: Approve the payment
       await callPiPlatform(
         { action: "a2u_approve", paymentId: createdPaymentId },
         "Failed to approve payout",
       );
 
-      const fetchedPayload = await callPiPlatform(
-        { action: "a2u_get", paymentId: createdPaymentId },
-        "Failed to fetch payout status",
+      // Step 3: Submit to Pi Blockchain (builds & signs Stellar tx)
+      const submitPayload = await callPiPlatform(
+        { action: "a2u_submit", paymentId: createdPaymentId },
+        "Failed to submit payout to blockchain",
       );
-      const fetchedPayment = (fetchedPayload.data || {}) as PiPaymentData;
-      const fetchedTxid = String(fetchedPayment.transaction?.txid || "").trim();
+      const submittedTxid = String((submitPayload as any).txid || "").trim();
 
+      // Step 4: Complete the payment
       await callPiPlatform(
-        { action: "a2u_complete", paymentId: createdPaymentId, txid: fetchedTxid || undefined },
+        { action: "a2u_complete", paymentId: createdPaymentId, txid: submittedTxid || undefined },
         "Failed to complete payout",
       );
 
+      // Step 5: Fetch final status
       const finalPayload = await callPiPlatform(
         { action: "a2u_get", paymentId: createdPaymentId },
         "Failed to load final payout status",
       );
       const finalPayment = (finalPayload.data || {}) as PiPaymentData;
-      const finalTxid = String(finalPayment.transaction?.txid || fetchedTxid || "").trim();
+      const finalTxid = String(finalPayment.transaction?.txid || submittedTxid || "").trim();
       const finalLink = String(finalPayment.transaction?._link || "").trim();
 
       setPaymentId(createdPaymentId);
       setTxid(finalTxid);
       setExplorerLink(finalLink);
-      toast.success("Payout submitted");
+      toast.success("Payout submitted successfully!");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Payout request failed");
     } finally {
