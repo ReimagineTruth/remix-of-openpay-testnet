@@ -4,6 +4,7 @@ import { ArrowLeft, HandCoins } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getFunctionErrorMessage } from "@/lib/supabaseFunctionError";
+import { getAppCookie } from "@/lib/userPreferences";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import BottomNav from "@/components/BottomNav";
@@ -30,6 +31,7 @@ const A2UPaymentsPage = () => {
   const [showPayoutModal, setShowPayoutModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [receiverUid, setReceiverUid] = useState("");
+  const [receiverUsername, setReceiverUsername] = useState("");
   const memo = "OpenPay Testnet payout";
   const [paymentId, setPaymentId] = useState("");
   const [txid, setTxid] = useState("");
@@ -51,7 +53,15 @@ const A2UPaymentsPage = () => {
         ]);
 
         const piUid = String(userResult.user?.user_metadata?.pi_uid || "").trim();
-        if (piUid) setReceiverUid(piUid);
+        const piUsername = String(userResult.user?.user_metadata?.pi_username || "").trim();
+        const cachedUid = getAppCookie("openpay_pi_uid");
+        const cachedUsername = getAppCookie("openpay_pi_username");
+
+        const resolvedUid = piUid || cachedUid || "";
+        const resolvedUsername = piUsername || cachedUsername || "";
+
+        if (resolvedUid) setReceiverUid(resolvedUid);
+        if (resolvedUsername) setReceiverUsername(resolvedUsername);
 
         const status = (configPayload.data || {}) as {
           hasApiKey?: boolean;
@@ -204,14 +214,38 @@ const A2UPaymentsPage = () => {
             authenticated in Pi Browser to continue.
           </DialogDescription>
 
+          {receiverUid ? (
+            <p className="text-xs text-slate-500">
+              Connected as {receiverUsername ? `@${receiverUsername}` : "Pi user"} ({receiverUid})
+            </p>
+          ) : (
+            <p className="text-xs text-destructive">
+              Pi account not linked. Authenticate with Pi Browser to continue.
+            </p>
+          )}
+
           <Button
             type="button"
             className="h-14 w-full rounded-2xl bg-paypal-blue text-3xl font-bold text-white hover:bg-[#004dc5]"
-            disabled={loading || !configReady}
+            disabled={loading || !configReady || !receiverUid}
             onClick={handleRequestPayout}
           >
             {loading ? "Submitting..." : "Receive your 0.01 Testnet Pi"}
           </Button>
+
+          {!receiverUid && (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-12 w-full rounded-2xl border-paypal-blue/25 bg-white text-base font-semibold text-paypal-blue hover:bg-slate-100"
+              onClick={() => {
+                setShowPayoutModal(false);
+                navigate("/auth");
+              }}
+            >
+              Authenticate with Pi
+            </Button>
+          )}
 
           {(paymentId || txid) && (
             <div className="space-y-2 text-sm text-slate-500">

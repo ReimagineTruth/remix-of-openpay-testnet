@@ -7,6 +7,7 @@ import { ArrowLeft, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useCurrency } from "@/contexts/CurrencyContext";
 import { getFunctionErrorMessage } from "@/lib/supabaseFunctionError";
+import { setAppCookie } from "@/lib/userPreferences";
 import TransactionReceipt, { type ReceiptData } from "@/components/TransactionReceipt";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
@@ -109,7 +110,13 @@ const TopUp = () => {
     if (error) throw new Error(await getFunctionErrorMessage(error, "Pi auth verification failed"));
     const payload = data as { success?: boolean; data?: { uid?: string; username?: string }; error?: string } | null;
     if (!payload?.success || !payload.data?.uid) throw new Error(payload?.error || "Pi auth verification failed");
-    return { uid: String(payload.data.uid), username: String(payload.data.username || "") };
+    return {
+      uid: String(payload.data.uid),
+      username: String(payload.data.username || ""),
+      walletAddress: typeof payload.data.wallet_address === "string"
+        ? String(payload.data.wallet_address)
+        : "",
+    };
   };
 
   const handleTopUp = async () => {
@@ -140,7 +147,7 @@ const TopUp = () => {
 
     setLoading(true);
     try {
-      const auth = await window.Pi.authenticate(["username", "payments"], async (payment) => {
+      const auth = await window.Pi.authenticate(["username", "payments", "wallet_address"], async (payment) => {
         const incompleteTxid = payment.transaction?.txid;
         if (!incompleteTxid) return;
         try {
@@ -154,13 +161,22 @@ const TopUp = () => {
       });
 
       const verified = await verifyPiAccessToken(auth.accessToken);
+      const resolvedUsername = verified.username || auth.user.username;
+      const resolvedWallet = verified.walletAddress || auth.user.wallet_address || "";
+
       await supabase.auth.updateUser({
         data: {
           pi_uid: verified.uid,
-          pi_username: verified.username || auth.user.username,
+          pi_username: resolvedUsername,
+          pi_wallet_address: resolvedWallet || null,
           pi_connected_at: new Date().toISOString(),
         },
       });
+
+      setAppCookie("openpay_pi_uid", verified.uid);
+      setAppCookie("openpay_pi_username", resolvedUsername);
+      if (resolvedWallet) setAppCookie("openpay_pi_wallet_address", resolvedWallet);
+      setAppCookie("openpay_pi_connected_at", new Date().toISOString());
 
       let completedPaymentId = "";
       let completedTxid = "";

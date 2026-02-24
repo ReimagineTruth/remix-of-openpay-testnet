@@ -39,6 +39,7 @@ type PiPaymentCallbacks = {
 type PiUser = {
   uid: string;
   username: string;
+  wallet_address?: string;
 };
 
 type PiAuthResult = {

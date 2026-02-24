@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import BrandLogo from "@/components/BrandLogo";
 import { supabase } from "@/integrations/supabase/client";
-import { setAppCookie } from "@/lib/userPreferences";
+import { getAppCookie, setAppCookie } from "@/lib/userPreferences";
 
 const PiAuthPage = () => {
   const [piUser, setPiUser] = useState<{ uid: string; username: string } | null>(null);
@@ -36,6 +36,15 @@ const PiAuthPage = () => {
   }, [navigate]);
 
   useEffect(() => {
+    const cachedUid = getAppCookie("openpay_pi_uid");
+    const cachedUsername = getAppCookie("openpay_pi_username");
+    if (cachedUid && cachedUsername) {
+      setPiUser({
+        uid: cachedUid,
+        username: cachedUsername,
+      });
+    }
+
     const ref = (searchParams.get("ref") || "").trim().toLowerCase();
     if (ref) {
       setAppCookie("openpay_last_ref", ref);
@@ -191,6 +200,10 @@ const PiAuthPage = () => {
           }
         }
       }
+
+      setAppCookie("openpay_pi_uid", verified.uid);
+      setAppCookie("openpay_pi_username", username);
+      setAppCookie("openpay_pi_connected_at", new Date().toISOString());
 
       setPiUser({ uid: verified.uid, username });
       toast.success(`Authenticated as @${username}`);

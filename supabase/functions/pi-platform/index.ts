@@ -16,11 +16,24 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
 const parseJson = (raw: string) => {
   if (!raw) return {};
   try {
-    return JSON.parse(raw) as Record<string, unknown>;
+    return JSON.parse(raw) as unknown;
   } catch {
     return { raw };
   }
 };
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+class PiApiError extends Error {
+  status: number;
+  data: unknown;
+
+  constructor(message: string, status: number, data: unknown) {
+    super(message);
+    this.status = status;
+    this.data = data;
+  }
+}
 
 const callPiApi = async (
   endpoint: string,
@@ -38,9 +51,11 @@ const callPiApi = async (
   });
   const data = parseJson(await res.text());
   if (!res.ok) {
-    throw new Error(
-      (data.error as string) || `Pi API failed (${res.status})`,
-    );
+    const message =
+      typeof (data as { error?: unknown })?.error === "string"
+        ? String((data as { error?: unknown }).error)
+        : `Pi API failed (${res.status})`;
+    throw new PiApiError(message, res.status, data);
   }
   return data;
 };
@@ -58,6 +73,54 @@ type PaymentInfo = {
 const HORIZON_URLS: Record<string, string> = {
   "Pi Network": "https://api.mainnet.minepi.com",
   "Pi Testnet": "https://api.testnet.minepi.com",
+};
+
+const resolvePaymentId = (payment: Record<string, unknown> | null | undefined) => {
+  const candidate = payment?.identifier ||
+    payment?.id ||
+    payment?.payment_identifier ||
+    payment?.paymentId ||
+    payment?.payment_id;
+  return typeof candidate === "string" ? candidate.trim() : "";
+};
+
+const extractPaymentList = (payload: unknown): Array<Record<string, unknown>> => {
+  if (Array.isArray(payload)) return payload as Array<Record<string, unknown>>;
+  if (payload && typeof payload === "object") {
+    const data = payload as Record<string, unknown>;
+    if (Array.isArray(data.data)) return data.data as Array<Record<string, unknown>>;
+    if (Array.isArray((data as { payments?: unknown }).payments)) {
+      return (data as { payments?: Array<Record<string, unknown>> }).payments || [];
+    }
+    if (Array.isArray((data as { incomplete_server_payments?: unknown }).incomplete_server_payments)) {
+      return (data as { incomplete_server_payments?: Array<Record<string, unknown>> }).incomplete_server_payments || [];
+    }
+  }
+  return [];
+};
+
+const normalizePaymentPayload = (payload: unknown): PaymentInfo => {
+  if (!payload || typeof payload !== "object") return payload as PaymentInfo;
+  const data = payload as Record<string, unknown>;
+  const payment =
+    (data as { data?: { payment?: Record<string, unknown> } })?.data?.payment ||
+    (data as { payment?: Record<string, unknown> })?.payment ||
+    (data as { data?: Record<string, unknown> })?.data ||
+    data;
+  return payment as PaymentInfo;
+};
+
+const getPaymentWithRetry = async (paymentId: string, apiKey: string, attempts = 5, delayMs = 2000) => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const payload = await callPiApi(`/payments/${paymentId}`, "GET", apiKey);
+      return normalizePaymentPayload(payload);
+    } catch (error) {
+      if (attempt === attempts - 1) throw error;
+      await sleep(delayMs);
+    }
+  }
+  throw new Error("Payment not found after retries");
 };
 
 const buildAndSubmitA2U = async (
@@ -138,9 +201,10 @@ serve(async (req) => {
 
       const uid = typeof data.uid === "string" ? data.uid : null;
       const username = typeof data.username === "string" ? data.username : null;
+      const walletAddress = typeof data.wallet_address === "string" ? data.wallet_address : null;
       if (!uid) return jsonResponse({ error: "Pi auth response missing uid" }, 400);
 
-      return jsonResponse({ success: true, data: { uid, username } });
+      return jsonResponse({ success: true, data: { uid, username, wallet_address: walletAddress } });
     }
 
     // ── All other actions need a valid Supabase session ──
@@ -189,8 +253,44 @@ serve(async (req) => {
       if (!uid) return jsonResponse({ error: "Missing payment.uid" }, 400);
       if (!memo) return jsonResponse({ error: "Missing payment.memo" }, 400);
 
-      const data = await callPiApi("/payments", "POST", apiKey, { payment: body });
-      return jsonResponse({ success: true, data });
+      const incompletePayload = await callPiApi("/payments/incomplete_server_payments", "GET", apiKey);
+      const incompletePayments = extractPaymentList(incompletePayload);
+      if (incompletePayments.length > 0) {
+        const oldPaymentId = resolvePaymentId(incompletePayments[0]);
+        if (oldPaymentId) {
+          await callPiApi(`/payments/${oldPaymentId}/cancel`, "POST", apiKey);
+        }
+      }
+
+      let createdData: Record<string, unknown> | null = null;
+
+      try {
+        createdData = await callPiApi("/payments", "POST", apiKey, { payment: body }) as Record<string, unknown>;
+      } catch (error) {
+        if (error instanceof PiApiError) {
+          const errorPayload = error.data as { error?: string; payment?: Record<string, unknown> };
+          if (errorPayload?.error === "ongoing_payment_found" && errorPayload.payment) {
+            const stuckPaymentId = resolvePaymentId(errorPayload.payment);
+            if (stuckPaymentId) {
+              await callPiApi(`/payments/${stuckPaymentId}/cancel`, "POST", apiKey);
+            }
+            createdData = await callPiApi("/payments", "POST", apiKey, { payment: body }) as Record<string, unknown>;
+          } else {
+            throw error;
+          }
+        } else {
+          throw error;
+        }
+      }
+
+      const normalizedPayment =
+        (createdData as { data?: { payment?: Record<string, unknown> } })?.data?.payment ||
+        (createdData as { payment?: Record<string, unknown> })?.payment ||
+        (createdData as { data?: Record<string, unknown> })?.data ||
+        createdData ||
+        {};
+
+      return jsonResponse({ success: true, data: normalizedPayment });
     }
 
     // ── a2u_submit: build Stellar tx & submit to blockchain ──
@@ -203,7 +303,11 @@ serve(async (req) => {
       if (!walletSeed) return jsonResponse({ error: "PI_WALLET_PRIVATE_SEED not configured" }, 500);
 
       // Fetch the payment to get addresses and network
-      const paymentData = await callPiApi(`/payments/${paymentId}`, "GET", apiKey) as unknown as PaymentInfo;
+      const paymentData = await getPaymentWithRetry(paymentId, apiKey);
+
+      if (paymentData.network !== "Pi Testnet") {
+        return jsonResponse({ error: "A2U payouts are supported only on Pi Testnet" }, 400);
+      }
 
       const submitTxid = await buildAndSubmitA2U(paymentData, walletSeed);
 
