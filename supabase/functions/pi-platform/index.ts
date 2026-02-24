@@ -99,6 +99,12 @@ const extractPaymentList = (payload: unknown): Array<Record<string, unknown>> =>
   return [];
 };
 
+const extractTxid = (payment: Record<string, unknown>) => {
+  const transaction = payment.transaction as { txid?: unknown } | undefined;
+  const txid = transaction?.txid;
+  return typeof txid === "string" ? txid.trim() : "";
+};
+
 const normalizePaymentPayload = (payload: unknown): PaymentInfo => {
   if (!payload || typeof payload !== "object") return payload as PaymentInfo;
   const data = payload as Record<string, unknown>;
@@ -277,7 +283,12 @@ serve(async (req) => {
       if (incompletePayments.length > 0) {
         const oldPaymentId = resolvePaymentId(incompletePayments[0]);
         if (oldPaymentId) {
-          await callPiApi(`/payments/${oldPaymentId}/cancel`, "POST", apiKey);
+          const oldTxid = extractTxid(incompletePayments[0]);
+          if (oldTxid) {
+            await callPiApi(`/payments/${oldPaymentId}/complete`, "POST", apiKey, { txid: oldTxid });
+          } else {
+            await callPiApi(`/payments/${oldPaymentId}/cancel`, "POST", apiKey);
+          }
         }
       }
 
