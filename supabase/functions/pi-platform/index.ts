@@ -401,6 +401,11 @@ serve(async (req) => {
     }
     return jsonResponse({ success: true, data });
   } catch (error: unknown) {
+    if (error instanceof PiApiError) {
+      console.error("pi-platform Pi API error:", error.message, error.status, error.data);
+      return jsonResponse({ error: error.message, status: error.status, data: error.data }, 400);
+    }
+
     const message = error instanceof Error ? error.message : "Unexpected error";
     console.error("pi-platform error:", message);
     return jsonResponse({ error: message }, 500);
