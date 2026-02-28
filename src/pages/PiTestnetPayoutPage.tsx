@@ -8,7 +8,7 @@ import { AlertCircle, Coins, Wallet } from 'lucide-react';
 
 const PiTestnetPayoutPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const { user, isAuthenticated, isLoading, authenticate } = usePiAuth();
+  const { user, isAuthenticated, isLoading, isPiBrowser, authenticate, openPiBrowser } = usePiAuth();
 
   const handlePaymentComplete = (paymentData: any) => {
     console.log('Payment completed:', paymentData);
@@ -51,11 +51,32 @@ const PiTestnetPayoutPage = () => {
           </CardHeader>
 
           <CardContent className="space-y-6">
-            {!isAuthenticated ? (
+            {!isPiBrowser ? (
               <div className="space-y-4">
                 <Alert variant="destructive" className="border-red-300 bg-red-50">
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription className="text-red-800">
+                    This app requires Pi Browser. Please open in Pi Browser to continue.
+                  </AlertDescription>
+                </Alert>
+
+                <Button 
+                  onClick={openPiBrowser}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                  size="lg"
+                >
+                  Open in Pi Browser
+                </Button>
+
+                <p className="text-center text-blue-100 text-sm">
+                  Click above to open this app in Pi Browser for authentication.
+                </p>
+              </div>
+            ) : !isAuthenticated ? (
+              <div className="space-y-4">
+                <Alert variant="destructive" className="border-orange-300 bg-orange-50">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="text-orange-800">
                     Pi account not linked. Authenticate with Pi Browser to continue.
                   </AlertDescription>
                 </Alert>
@@ -67,6 +88,10 @@ const PiTestnetPayoutPage = () => {
                 >
                   Authenticate with Pi
                 </Button>
+
+                <p className="text-center text-blue-100 text-sm">
+                  Connect your Pi account to receive testnet payouts.
+                </p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -96,7 +121,7 @@ const PiTestnetPayoutPage = () => {
                 </Button>
 
                 <p className="text-center text-blue-100 text-sm">
-                  Click the button above to receive 0.01 Pi to your testnet Pi wallet.
+                  Click button above to receive 0.01 Pi to your testnet Pi wallet.
                 </p>
               </div>
             )}
@@ -129,6 +154,16 @@ const PiTestnetPayoutPage = () => {
           <p className="text-blue-200 text-xs mt-2">
             Testnet Pi has no real-world value.
           </p>
+          {isPiBrowser && (
+            <div className="mt-4 p-3 bg-white/10 rounded-lg border border-white/20">
+              <p className="text-green-300 text-sm font-medium">
+                ✅ Running in Pi Browser
+              </p>
+              <p className="text-blue-200 text-xs mt-1">
+                Production mode: Sandbox disabled
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
