@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, HandCoins } from "lucide-react";
+import { ArrowLeft, HandCoins, ExternalLink, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { getFunctionErrorMessage } from "@/lib/supabaseFunctionError";
 import { getAppCookie, setAppCookie } from "@/lib/userPreferences";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import BottomNav from "@/components/BottomNav";
+import A2UPaymentStatus from "@/components/pi-network/a2u-payment-status";
 
 type PiPaymentData = {
   identifier?: string;
@@ -17,12 +20,23 @@ type PiPaymentData = {
     txid?: string;
     _link?: string;
   } | null;
+  status?: {
+    developer_approved?: boolean;
+    transaction_verified?: boolean;
+    developer_completed?: boolean;
+    cancelled?: boolean;
+    user_cancelled?: boolean;
+  };
+  network?: string;
+  created_at?: string;
+  user_uid?: string;
 };
 
 const A2UPaymentsPage = () => {
   const navigate = useNavigate();
   const fixedPayoutAmount = 0.01;
   const [showPayoutModal, setShowPayoutModal] = useState(false);
+  const [showStatusModal, setShowStatusModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [receiverUid, setReceiverUid] = useState("");
   const [receiverUsername, setReceiverUsername] = useState("");
@@ -30,6 +44,7 @@ const A2UPaymentsPage = () => {
   const [paymentId, setPaymentId] = useState("");
   const [txid, setTxid] = useState("");
   const [explorerLink, setExplorerLink] = useState("");
+  const [paymentData, setPaymentData] = useState<PiPaymentData | null>(null);
   const [configReady, setConfigReady] = useState(false);
   const [piSdkReady, setPiSdkReady] = useState(false);
   const [authRefreshing, setAuthRefreshing] = useState(false);
@@ -146,6 +161,7 @@ const A2UPaymentsPage = () => {
     setPaymentId("");
     setTxid("");
     setExplorerLink("");
+    setPaymentData(null);
 
     try {
       const payoutMemo = memo.trim() || "OpenPay Testnet payout";
@@ -155,6 +171,12 @@ const A2UPaymentsPage = () => {
           uid: receiverUid.trim(),
           amount: fixedPayoutAmount,
           memo: payoutMemo,
+          metadata: {
+            feature: "a2u_withdraw",
+            requested_at: new Date().toISOString(),
+            app: "OpenPay",
+            user_agent: navigator.userAgent,
+          },
         },
         "Failed to create payout",
       );
@@ -168,12 +190,37 @@ const A2UPaymentsPage = () => {
       setPaymentId(createdPaymentId);
       setTxid(finalTxid);
       setExplorerLink(finalLink);
+      setPaymentData(finalPayment);
       toast.success("Payout submitted successfully!");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Payout request failed");
     } finally {
       setLoading(false);
     }
+  };
+
+  const getStatusBadge = () => {
+    if (!paymentData?.status) return null;
+
+    const { status } = paymentData;
+    
+    if (status.cancelled || status.user_cancelled) {
+      return <Badge variant="destructive">Cancelled</Badge>;
+    }
+    
+    if (status.developer_completed && status.transaction_verified) {
+      return <Badge variant="default" className="bg-green-500">Completed</Badge>;
+    }
+    
+    if (status.developer_completed && !status.transaction_verified) {
+      return <Badge variant="secondary">Pending Verification</Badge>;
+    }
+    
+    if (status.developer_approved) {
+      return <Badge variant="outline">In Progress</Badge>;
+    }
+    
+    return <Badge variant="outline">Created</Badge>;
   };
 
   return (
@@ -216,6 +263,66 @@ const A2UPaymentsPage = () => {
           Request Top Up
         </Button>
       </div>
+
+      {paymentData && paymentId && (
+        <div className="mt-6 rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-paypal-dark">Latest Payment</h3>
+            <div className="flex items-center gap-2">
+              {getStatusBadge()}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowStatusModal(true)}
+              >
+                View Details
+              </Button>
+            </div>
+          </div>
+          
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Amount:</span>
+              <span className="font-medium">{paymentData.amount || fixedPayoutAmount} Pi</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Network:</span>
+              <span className="font-medium">{paymentData.network || "Testnet"}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Payment ID:</span>
+              <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+                {paymentId.slice(0, 8)}...{paymentId.slice(-8)}
+              </span>
+            </div>
+            {txid && (
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Transaction:</span>
+                <div className="flex items-center gap-1">
+                  <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
+                    {txid.slice(0, 8)}...{txid.slice(-8)}
+                  </span>
+                  {explorerLink && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      asChild
+                    >
+                      <a
+                        href={explorerLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <BottomNav active="menu" />
 
@@ -312,6 +419,18 @@ const A2UPaymentsPage = () => {
           >
             Go to Top Up
           </Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showStatusModal} onOpenChange={setShowStatusModal}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto rounded-[32px] border-0 bg-[#f5f5f7] p-6 sm:max-w-[520px]">
+          <DialogTitle className="text-2xl font-bold text-paypal-dark">Payment Status</DialogTitle>
+          {paymentId && (
+            <A2UPaymentStatus 
+              paymentId={paymentId} 
+              onClose={() => setShowStatusModal(false)} 
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>

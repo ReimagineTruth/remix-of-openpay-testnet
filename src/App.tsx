@@ -50,6 +50,7 @@ import OpenAppPage from "./pages/OpenAppPage";
 import OpenPayDesktopPage from "./pages/OpenPayDesktopPage";
 import VirtualCardPage from "./pages/VirtualCardPage";
 import A2UPaymentsPage from "./pages/A2UPaymentsPage";
+import PiTestnetPayoutPage from "./pages/PiTestnetPayoutPage";
 import NotFound from "./pages/NotFound";
 import { CurrencyProvider } from "./contexts/CurrencyContext";
 import { useRealtimePushNotifications } from "./hooks/useRealtimePushNotifications";
@@ -137,6 +138,7 @@ const AppRoutes = () => {
         <Route path="/merchant-checkout" element={<MerchantCheckoutPage />} />
         <Route path="/virtual-card" element={<VirtualCardPage />} />
         <Route path="/a2u-payments" element={<A2UPaymentsPage />} />
+        <Route path="/testnet-payout" element={<PiTestnetPayoutPage />} />
         <Route path="/remittance-merchant" element={<RemittanceMerchantPage />} />
         <Route path="/openpay-official" element={<OpenPayOfficialPage />} />
         <Route path="/openapp" element={<OpenAppPage />} />
