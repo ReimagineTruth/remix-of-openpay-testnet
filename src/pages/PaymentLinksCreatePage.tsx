@@ -61,7 +61,7 @@ const PaymentLinksCreatePage = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showMenuSelection, setShowMenuSelection] = useState(false);
 
-  const [mode, setMode] = useState<Mode>("sandbox");
+  const [mode, setMode] = useState<Mode>("live");
   const [type, setType] = useState<LinkType>("products");
   const [secretKey, setSecretKey] = useState("");
   const [title, setTitle] = useState("OpenPay Payment");

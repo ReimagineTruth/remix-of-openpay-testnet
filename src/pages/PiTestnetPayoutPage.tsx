@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { usePiAuth } from '@/hooks/use-pi-auth';
-import PiPaymentModal from '@/components/pi-network/pi-payment-modal';
+import { PiPaymentModal } from '@/components/pi-network/pi-payment-modal';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';

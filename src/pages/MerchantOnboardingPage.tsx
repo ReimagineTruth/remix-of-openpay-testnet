@@ -98,7 +98,7 @@ const MerchantOnboardingPage = () => {
   const [userId, setUserId] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<PortalView>("home");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [mode, setMode] = useState<Mode>("sandbox");
+  const [mode, setMode] = useState<Mode>("live");
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   const [merchantName, setMerchantName] = useState("OpenPay Merchant");

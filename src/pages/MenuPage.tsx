@@ -136,6 +136,7 @@ const MenuPage = () => {
         { icon: Store, label: "Merchant Portal", action: () => navigate("/merchant-onboarding") },
         { icon: Store, label: "Merchant POS", action: () => navigate("/merchant-pos") },
         { icon: HandCoins, label: "A2U App-to-User Payments", action: () => navigate("/a2u-payments") },
+        { icon: HandCoins, label: "Testnet Payouts", action: () => navigate("/testnet-payout") },
         ...(canOpenAdminDashboard
           ? [{ icon: ShieldCheck, label: "Admin Dashboard", action: () => navigate("/admin-dashboard") }]
           : []),

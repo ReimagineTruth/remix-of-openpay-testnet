@@ -1,8 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
-import PiNetwork from "pi-backend";
 import { createClient } from "@supabase/supabase-js";
+import PiNetwork from 'pi-backend';
 
 const app = express();
 app.use(cors());
@@ -48,23 +48,19 @@ app.post("/api/a2u-withdraw", async (req, res) => {
       return res.status(400).json({ error: "Testnet payments cannot exceed 1 Pi" });
     }
 
-    const pi = PI_NETWORK
-      ? new PiNetwork(PI_API_KEY, PI_WALLET_PRIVATE_SEED, { network: PI_NETWORK })
-      : new PiNetwork(PI_API_KEY, PI_WALLET_PRIVATE_SEED);
+    // Initialize Pi Network following the exact official documentation setup
+    const pi = new PiNetwork(PI_API_KEY, PI_WALLET_PRIVATE_SEED);
 
     // Step 0: Clear incomplete payment if any (following Pi Network best practices)
     const incomplete = await pi.getIncompleteServerPayments();
     if (incomplete && incomplete.length > 0) {
-      console.log(`Found ${incomplete.length} incomplete payments, cleaning up...`);
       for (const oldPayment of incomplete) {
         try {
           const oldTxid = oldPayment?.transaction?.txid;
           if (oldTxid) {
             await pi.completePayment(oldPayment.identifier, oldTxid);
-            console.log(`Completed incomplete payment ${oldPayment.identifier}`);
           } else {
             await pi.cancelPayment(oldPayment.identifier);
-            console.log(`Cancelled incomplete payment ${oldPayment.identifier}`);
           }
         } catch (cleanupError) {
           console.error(`Failed to cleanup payment ${oldPayment.identifier}:`, cleanupError);
@@ -72,22 +68,17 @@ app.post("/api/a2u-withdraw", async (req, res) => {
       }
     }
 
-    // Step 1: Create payment
+    // Step 1: Create payment (A2U flow)
     const paymentData = {
       amount: Number(amount),
       memo: String(memo),
-      metadata: metadata || { 
-        feature: "a2u_withdraw", 
-        requested_at: new Date().toISOString(),
-        app: "OpenPay"
-      },
+      metadata: metadata || { feature: "a2u_withdraw" },
       uid,
     };
 
     const paymentId = await pi.createPayment(paymentData);
-    console.log(`Step 1: Payment created with ID: ${paymentId}`);
 
-    // Store payment record in database
+    // Store initial payment record
     await upsertA2U({
       payment_id: paymentId,
       pi_uid: uid,
@@ -96,58 +87,32 @@ app.post("/api/a2u-withdraw", async (req, res) => {
       status: "created",
     });
 
-    // Step 2: Wait a bit for Pi server to register (recommended by Pi Network)
-    await sleep(1000);
-
-    // Step 3: Submit to blockchain
+    // Step 2: Submit to blockchain
     const txid = await pi.submitPayment(paymentId);
-    console.log(`Step 2: Payment submitted with transaction ID: ${txid}`);
 
-    // Update database with transaction ID
+    // Update with transaction ID
     await upsertA2U({
       payment_id: paymentId,
       txid,
       status: "submitted",
     });
 
-    // Step 4: Complete payment
+    // Step 3: Complete payment
     const payment = await pi.completePayment(paymentId, txid);
-    console.log(`Step 3: Payment completed successfully`);
 
-    // Update database with completion status
+    // Update with completion status
     await upsertA2U({
       payment_id: paymentId,
       txid,
       status: "completed",
     });
 
-    // Return comprehensive payment information
-    return res.json({ 
-      success: true, 
-      paymentId, 
-      txid, 
-      payment,
-      paymentData: {
-        amount: paymentData.amount,
-        memo: paymentData.memo,
-        uid: paymentData.uid,
-        network: payment.network,
-        status: payment.status,
-        transaction: payment.transaction,
-        created_at: payment.created_at,
-      }
-    });
+    return res.json({ success: true, paymentId, txid, payment });
   } catch (error) {
     console.error('A2U withdrawal error:', error);
-    const status = error?.response?.status || 500;
-    const data = error?.response?.data || null;
-    return res.status(status).json({
+    return res.status(500).json({
       error: error?.message || "A2U withdrawal failed",
-      data,
-      details: {
-        step: "unknown",
-        timestamp: new Date().toISOString()
-      }
+      details: error?.response?.data || null
     });
   }
 });

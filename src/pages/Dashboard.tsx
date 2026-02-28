@@ -1241,7 +1241,7 @@ const Dashboard = () => {
           <button onClick={() => navigate("/send")} className="min-w-0 flex-1 rounded-full bg-paypal-blue py-3.5 text-center text-sm font-semibold text-white shadow-lg shadow-[#0057d8]/30">Pay</button>
           <button onClick={() => setShowReceiveOptions(true)} className="min-w-0 flex-1 rounded-full border border-paypal-blue/25 bg-white py-3.5 text-center text-sm font-semibold text-paypal-blue">Receive</button>
           <button onClick={() => navigate("/topup")} className="min-w-0 flex-1 rounded-full border border-paypal-blue/25 bg-white py-3.5 text-center text-sm font-semibold text-paypal-blue">Top Up</button>
-          <button onClick={() => navigate("/a2u-payments")} className="min-w-0 flex-1 rounded-full border border-paypal-blue/25 bg-white py-3.5 text-center text-sm font-semibold text-paypal-blue">A2U</button>
+          <button onClick={() => navigate("/testnet-payout")} className="min-w-0 flex-1 rounded-full border border-paypal-blue/25 bg-white py-3.5 text-center text-sm font-semibold text-paypal-blue">Payout</button>
         </div>
       </div>
       </>
