@@ -989,6 +989,45 @@ export type Database = {
         }
         Relationships: []
       }
+      pi_a2u_payouts: {
+        Row: {
+          amount: number | null
+          created_at: string
+          created_by: string | null
+          memo: string | null
+          payment_id: string
+          pi_uid: string | null
+          status: string | null
+          txid: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          amount?: number | null
+          created_at?: string
+          created_by?: string | null
+          memo?: string | null
+          payment_id: string
+          pi_uid?: string | null
+          status?: string | null
+          txid?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          amount?: number | null
+          created_at?: string
+          created_by?: string | null
+          memo?: string | null
+          payment_id?: string
+          pi_uid?: string | null
+          status?: string | null
+          txid?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       pi_payment_credits: {
         Row: {
           amount: number
