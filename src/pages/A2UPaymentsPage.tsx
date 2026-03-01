@@ -49,18 +49,12 @@ const A2UPaymentsPage = () => {
   const [piSdkReady, setPiSdkReady] = useState(false);
   const [authRefreshing, setAuthRefreshing] = useState(false);
 
-  const a2uEndpoint = (import.meta as any).env?.VITE_A2U_ENDPOINT || "/api/a2u-withdraw";
-  const callA2U = async (payload: Record<string, unknown>, fallbackError: string) => {
-    const res = await fetch(a2uEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.success) {
-      throw new Error(data?.error || fallbackError);
-    }
-    return data as Record<string, unknown>;
+  const callPiPlatform = async (body: Record<string, unknown>, fallbackError: string) => {
+    const { data, error } = await supabase.functions.invoke("pi-platform", { body });
+    if (error) throw new Error(await getFunctionErrorMessage(error, fallbackError));
+    const payload = data as Record<string, unknown> | null;
+    if (!payload?.success) throw new Error(String(payload?.error || fallbackError));
+    return payload;
   };
 
   useEffect(() => {
@@ -166,32 +160,53 @@ const A2UPaymentsPage = () => {
     try {
       const payoutMemo = memo.trim() || "OpenPay Testnet payout";
 
-      const payoutPayload = await callA2U(
+      // Step 1: Create A2U payment
+      toast.info("Step 1/3: Creating payment...");
+      const createResult = await callPiPlatform(
         {
-          uid: receiverUid.trim(),
-          amount: fixedPayoutAmount,
-          memo: payoutMemo,
-          metadata: {
-            feature: "a2u_withdraw",
-            requested_at: new Date().toISOString(),
-            app: "OpenPay",
-            user_agent: navigator.userAgent,
+          action: "a2u_create",
+          payment: {
+            uid: receiverUid.trim(),
+            amount: fixedPayoutAmount,
+            memo: payoutMemo,
+            metadata: {
+              feature: "a2u_withdraw",
+              requested_at: new Date().toISOString(),
+              app: "OpenPay",
+            },
           },
         },
-        "Failed to create payout",
+        "Failed to create A2U payment",
       );
 
-      const createdPaymentId = String(payoutPayload.paymentId || "").trim();
-      const submittedTxid = String(payoutPayload.txid || "").trim();
-      const finalPayment = (payoutPayload.payment || {}) as PiPaymentData;
-      const finalTxid = String(finalPayment.transaction?.txid || submittedTxid || "").trim();
+      const createdPaymentId = String(createResult.paymentId || "").trim();
+      if (!createdPaymentId) throw new Error("No payment ID returned from create step");
+      setPaymentId(createdPaymentId);
+
+      // Step 2: Submit payment to blockchain
+      toast.info("Step 2/3: Submitting to blockchain...");
+      const submitResult = await callPiPlatform(
+        { action: "a2u_submit", paymentId: createdPaymentId },
+        "Failed to submit A2U payment",
+      );
+
+      const submittedTxid = String(submitResult.txid || "").trim();
+      if (!submittedTxid) throw new Error("No txid returned from submit step");
+      setTxid(submittedTxid);
+
+      // Step 3: Complete payment
+      toast.info("Step 3/3: Completing payment...");
+      const completeResult = await callPiPlatform(
+        { action: "a2u_complete", paymentId: createdPaymentId, txid: submittedTxid },
+        "Failed to complete A2U payment",
+      );
+
+      const finalPayment = (completeResult.payment || {}) as PiPaymentData;
       const finalLink = String(finalPayment.transaction?._link || "").trim();
 
-      setPaymentId(createdPaymentId);
-      setTxid(finalTxid);
       setExplorerLink(finalLink);
       setPaymentData(finalPayment);
-      toast.success("Payout submitted successfully!");
+      toast.success("Payout completed successfully!");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Payout request failed");
     } finally {

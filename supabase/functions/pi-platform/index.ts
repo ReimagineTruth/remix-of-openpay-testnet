@@ -23,7 +23,7 @@ const parseJson = (raw: string) => {
 };
 
 const safeUpsertA2UPayout = async (
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   record: Record<string, unknown>,
 ) => {
   try {
@@ -34,8 +34,8 @@ const safeUpsertA2UPayout = async (
     if (error) {
       console.warn("pi_a2u_payouts upsert error:", error.message);
     }
-  } catch (err) {
-    console.warn("pi_a2u_payouts upsert failed:", err instanceof Error ? err.message : String(err));
+  } catch (err: any) {
+    console.warn("pi_a2u_payouts upsert failed:", err?.message || String(err));
   }
 };
 

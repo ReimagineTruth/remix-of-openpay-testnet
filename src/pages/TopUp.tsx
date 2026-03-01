@@ -108,7 +108,7 @@ const TopUp = () => {
       body: { action: "auth_verify", accessToken },
     });
     if (error) throw new Error(await getFunctionErrorMessage(error, "Pi auth verification failed"));
-    const payload = data as { success?: boolean; data?: { uid?: string; username?: string }; error?: string } | null;
+    const payload = data as { success?: boolean; data?: { uid?: string; username?: string; wallet_address?: string }; error?: string } | null;
     if (!payload?.success || !payload.data?.uid) throw new Error(payload?.error || "Pi auth verification failed");
     return {
       uid: String(payload.data.uid),
