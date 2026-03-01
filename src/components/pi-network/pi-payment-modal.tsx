@@ -94,7 +94,7 @@ export const PiPaymentModal: React.FC<PiPaymentModalProps> = ({
 
     try {
       // Step 1: Create payment
-      const response = await fetch('http://localhost:8788/api/a2u-withdraw', {
+      const response = await fetch('http://localhost:8788/api/withdraw', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -118,6 +118,11 @@ export const PiPaymentModal: React.FC<PiPaymentModalProps> = ({
       }
 
       const data = await response.json();
+      
+      // Display logs from server for better debugging
+      if (data.logs && data.logs.length > 0) {
+        console.log('A2U Server Logs:', data.logs);
+      }
       
       // Simulate step progression for better UX
       setCurrentStep('submit');
